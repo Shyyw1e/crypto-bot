@@ -49,3 +49,8 @@ type Opportunity struct {
 func (o *Opportunity) Hash(chatID int64) string {
 	return fmt.Sprintf("%d-%s-%s-%.2f-%.2f-%.4f", chatID, o.BuyExchange, o.SellExchange, o.BuyPrice, o.SellPrice, o.BuyAmount)
 }
+
+type FeesConfig struct {
+	Source	Source		// rapira/grinex
+	Value 	float64		// в процентах, например 0.0 будет означать 0.0% комиссии
+}
