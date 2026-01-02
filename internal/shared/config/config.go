@@ -49,7 +49,7 @@ type ArbitrageConfig struct {
 type RapiraConfig struct {
 	BaseURL       string
 	APIKeyKID     string
-	PrivateKeyPath string
+	PrivateKey string
 	PollInterval  time.Duration
 	Symbols       []string
 }
@@ -264,7 +264,7 @@ func loadRapiraConfig(cfg *Config) error {
 	cfg.Rapira = RapiraConfig{
 		BaseURL:        baseURL,
 		APIKeyKID:      apiKeyKID,
-		PrivateKeyPath: privateKeyPath,
+		PrivateKey: privateKeyPath,
 		PollInterval:   time.Duration(pollIntervalMs) * time.Millisecond,
 		Symbols:        symbols,
 	}
@@ -330,8 +330,8 @@ func validateConfig(cfg *Config, serviceName string) error {
 		if cfg.Rapira.APIKeyKID == "" {
 			return errors.New("RAPIRA_API_KEY_KID is required for rapira-gw")
 		}
-		if cfg.Rapira.PrivateKeyPath == "" {
-			return errors.New("RAPIRA_JWT_PRIVATE_KEY_PATH is required for rapira-gw")
+		if cfg.Rapira.PrivateKey == "" {
+			return errors.New("RAPIRA_JWT_PRIVATE_KEY is required for rapira-gw")
 		}
 		if len(cfg.Rapira.Symbols) == 0 {
 			return errors.New("RAPIRA_SYMBOLS must contain at least one symbol for rapira-gw")
