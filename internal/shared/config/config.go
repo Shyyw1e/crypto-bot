@@ -47,11 +47,18 @@ type ArbitrageConfig struct {
 }
 
 type RapiraConfig struct {
-	BaseURL       string
-	APIKeyKID     string
-	PrivateKey string
-	PollInterval  time.Duration
-	Symbols       []string
+    BaseURL          string        // RAPIRA_API_BASE_URL
+    APIKeyKID        string        // RAPIRA_API_KEY_KID
+    PrivateKeyBase64 string        // RAPIRA_JWT_PRIVATE_KEY
+
+    PollIntervalMs   int           // RAPIRA_POLL_INTERVAL_MS
+    PollInterval     time.Duration // производное поле
+
+    SymbolsRaw       string        // RAPIRA_SYMBOLS
+    Symbols          []string      // производное поле
+
+    ClientJWTTTL     time.Duration // например, 1h (по умолчанию)
+    RefreshMargin    time.Duration // например, 5-10 минут до exp
 }
 
 type GrinexConfig struct {
@@ -264,7 +271,7 @@ func loadRapiraConfig(cfg *Config) error {
 	cfg.Rapira = RapiraConfig{
 		BaseURL:        baseURL,
 		APIKeyKID:      apiKeyKID,
-		PrivateKey: privateKeyPath,
+		PrivateKeyBase64: privateKeyPath,
 		PollInterval:   time.Duration(pollIntervalMs) * time.Millisecond,
 		Symbols:        symbols,
 	}
@@ -330,7 +337,7 @@ func validateConfig(cfg *Config, serviceName string) error {
 		if cfg.Rapira.APIKeyKID == "" {
 			return errors.New("RAPIRA_API_KEY_KID is required for rapira-gw")
 		}
-		if cfg.Rapira.PrivateKey == "" {
+		if cfg.Rapira.PrivateKeyBase64 == "" {
 			return errors.New("RAPIRA_JWT_PRIVATE_KEY is required for rapira-gw")
 		}
 		if len(cfg.Rapira.Symbols) == 0 {
