@@ -5,6 +5,7 @@ go 1.24.1
 require github.com/joho/godotenv v1.5.1
 
 require (
+	github.com/golang-jwt/jwt/v5 v5.3.0 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/nats-io/nats.go v1.48.0 // indirect
 	github.com/nats-io/nkeys v0.4.11 // indirect
