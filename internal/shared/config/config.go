@@ -250,7 +250,7 @@ func loadArbitrageConfig(cfg *Config) error {
 func loadRapiraConfig(cfg *Config) error {
 	baseURL := os.Getenv("RAPIRA_API_BASE_URL")
 	apiKeyKID := os.Getenv("RAPIRA_API_KEY_KID")
-	privateKeyPath := os.Getenv("RAPIRA_JWT_PRIVATE_KEY_PATH")
+	privateKey := os.Getenv("RAPIRA_JWT_PRIVATE_KEY")
 
 	pollIntervalMs, err := getIntEnv("RAPIRA_POLL_INTERVAL_MS", 500)
 	if err != nil {
@@ -267,14 +267,20 @@ func loadRapiraConfig(cfg *Config) error {
 			}
 		}
 	}
+	refreshMargin, err := getIntEnv("RAPIRA_REFRESH_MARGIN_MIN", 5)
+	if err != nil {
+		return fmt.Errorf("parse RAPIRA_REFRESH_MARGIN_MIN: %w", err)
+	}
 
 	cfg.Rapira = RapiraConfig{
-		BaseURL:        baseURL,
-		APIKeyKID:      apiKeyKID,
-		PrivateKeyBase64: privateKeyPath,
-		PollInterval:   time.Duration(pollIntervalMs) * time.Millisecond,
-		Symbols:        symbols,
-	}
+		BaseURL:        	baseURL,
+		APIKeyKID:      	apiKeyKID,
+		PrivateKeyBase64: 	privateKey,
+		PollInterval:   	time.Duration(pollIntervalMs) * time.Millisecond,
+		Symbols:        	symbols,
+		RefreshMargin: 		time.Duration(refreshMargin) * time.Minute,
+		ClientJWTTTL: 		time.Hour,
+	}	
 	return nil
 }
 
