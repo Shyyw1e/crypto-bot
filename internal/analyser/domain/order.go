@@ -17,12 +17,12 @@ const (
 )
 
 type Order struct {
-	Price    float64   // цена
-	Amount   float64   // количество базовой валюты (USDT)
-	Notional float64   // объём в USDT (Sum)
-	Side     OrderSide
-	Source   Source
-	Pair     Pair
+	Price    float64   	// цена
+	Amount   float64   	// количество базовой валюты (USDT)
+	Notional float64   	// объём в USDT (Sum)
+	Side     OrderSide 	// bid или ask
+	Source   Source		// rapira
+	Pair     Pair		// const "USDT/RUB"
 }
 
 
