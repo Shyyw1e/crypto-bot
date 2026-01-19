@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package tgbot;
+
+option go_package = "/internal/proto/tgbotpb";
+
+// Уведомление, которое analyser шлёт в tg-bot.
+message Notification {
+  int64  chat_id         = 1;
+  string type            = 2; // "fact" или "potential"
+  string pair            = 3; // "USDT/RUB", "USDT/A7A5"
+  string direction       = 4; // "buy_rapira_sell_rapira" и т.п.
+  double profit_diff     = 5;
+  double notional        = 6;
+  string op_hash         = 7;
+  int64  created_at_unix = 8; // unix time в секундах
+}
+
+// Запрос на отправку уведомления.
+message SendNotificationRequest {
+  Notification notification = 1;
+}
+
+message SendNotificationResponse {
+  // можно добавить, например, message_id телеграма, если понадобится.
+}
+
+// Этот сервис поднимает tg-bot.
+// Analyser реализует Notifier через gRPC-клиент к этому сервису.
+service TgBotNotificationService {
+  rpc SendNotification(SendNotificationRequest)
+      returns (SendNotificationResponse);
+}

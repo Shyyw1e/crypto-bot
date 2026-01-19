@@ -67,10 +67,13 @@ type GrinexConfig struct {
 	Symbols      []string
 }
 
+
 type TelegramConfig struct {
-	BotToken        string
-	InternalBaseURL string
+	BotToken            string
+	Addr                string        // gRPC-адрес tg-bot (TGBOT_GRPC_ADDR)
+	NotificationTimeout time.Duration // таймаут на отправку уведомления в tg-bot
 }
+
 
 type Config struct {
 	App      AppConfig
@@ -214,6 +217,8 @@ func loadRedisConfig(cfg *Config) error {
 	return nil
 }
 
+
+
 func loadNatsConfig(cfg *Config) {
 	cfg.Nats = NatsConfig{
 		URL: os.Getenv("NATS_URL"),
@@ -313,7 +318,8 @@ func loadGrinexConfig(cfg *Config) error {
 func loadTelegramConfig(cfg *Config) {
 	cfg.Telegram = TelegramConfig{
 		BotToken:        os.Getenv("TG_BOT_TOKEN"),
-		InternalBaseURL: os.Getenv("TGBOT_INTERNAL_BASE_URL"),
+		Addr: os.Getenv("TGBOT_GRPC_ADDR"),
+		NotificationTimeout: time.Duration(2000) * time.Millisecond,
 	}
 }
 
@@ -332,6 +338,9 @@ func validateConfig(cfg *Config, serviceName string) error {
 		}
 		if cfg.Arb.OrderbookDepth <= 0 {
 			return errors.New("ORDERBOOK_DEPTH must be > 0")
+		}
+		if cfg.Telegram.Addr == "" {
+			return errors.New("TGBOT_GRPC_ADDR is required for analyser")
 		}
 	case "rapira-gw":
 		if cfg.HTTP.Port == 0 {

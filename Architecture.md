@@ -27,8 +27,8 @@ Telegram-бот помогает находить **арбитражные во�
 - **Хранилище:** PostgreSQL.
 - **Кэш / быстрые данные:** Redis.
 - **Взаимодействие сервисов:**
-    - `rapira-gw` / `grinex-gw` → `analyser`: gRPC-streaming **или** HTTP internal webhook (event-driven).
-    - `analyser` → `tg-bot`: HTTP internal webhook (push сигнала в бот).
+    - `rapira-gw` / `grinex-gw` → `analyser`: Redis-streaming.
+    - `analyser` → `tg-bot`: GRPc (push сигнала в бот).
 - **Контейнеризация:** Docker + docker-compose.
 
 ---

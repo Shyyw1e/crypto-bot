@@ -3,83 +3,164 @@ package main
 import (
 	"context"
 	"errors"
-	"net/http"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/Shyyw1e/crypto-bot/internal/rapira-gw/adapters/middleware"
-	"github.com/Shyyw1e/crypto-bot/internal/rapira-gw/adapters/publisher"
-	"github.com/Shyyw1e/crypto-bot/internal/rapira-gw/adapters/rapiraapi"
-	"github.com/Shyyw1e/crypto-bot/internal/rapira-gw/usecase"
+	"github.com/nats-io/nats.go"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+
+	"github.com/Shyyw1e/crypto-bot/internal/analyser/cache"
+	"github.com/Shyyw1e/crypto-bot/internal/analyser/domain"
+	pgrepo "github.com/Shyyw1e/crypto-bot/internal/analyser/repository/postgres"
+	"github.com/Shyyw1e/crypto-bot/internal/analyser/usecase"
+	grpcnotifier "github.com/Shyyw1e/crypto-bot/internal/analyser/adapters/tgbotgrpc"
 	"github.com/Shyyw1e/crypto-bot/internal/shared/config"
+	"github.com/Shyyw1e/crypto-bot/internal/shared/db"
 	"github.com/Shyyw1e/crypto-bot/internal/shared/logger"
 	"github.com/Shyyw1e/crypto-bot/internal/shared/redis"
 )
 
+// MVPNotifier — запасной notifier, который просто логирует уведомления
+// (используем, если нет gRPC-адреса бота).
+type MVPNotifier struct {
+	log logger.Logger
+}
+
+func NewMVPNotifier(log logger.Logger) *MVPNotifier {
+	return &MVPNotifier{log: log}
+}
+
+func (m *MVPNotifier) Send(_ context.Context, n *domain.Notification) error {
+	m.log.Info(
+		"send_notification_mvp",
+		"chat_id", n.ChatID,
+		"type", n.Type,
+		"pair", n.Pair,
+		"direction", n.Direction,
+		"profit_diff", n.ProfitDiff,
+		"notional", n.Notional,
+		"op_hash", n.OpHash,
+	)
+	return nil
+}
+
 func main() {
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
-	cfg := config.MustLoad("")
-	log := logger.New(cfg.App.LogLevel, "rapira-gw")
+	cfg := config.MustLoad("analyser")
+	log := logger.New(cfg.App.LogLevel, "analyser")
 
-	log.Info("rapira_gw_starting", "env", cfg.App.Env)
+	log.Info("analyser_starting", "env", cfg.App.Env)
 
-	// Redis
+	// --- Postgres ---
+	pool, err := db.Open(ctx, cfg, log)
+	if err != nil {
+		log.Error("analyser_db_open_failed", "err", err)
+		os.Exit(1)
+	}
+	defer db.Close(pool, log)
+
+	// --- Redis ---
 	rdb, err := redis.New(ctx, cfg, log)
 	if err != nil {
-		log.Error("rapira_gw_redis_init_failed", "err", err)
+		log.Error("analyser_redis_open_failed", "err", err)
 		os.Exit(1)
 	}
 	defer redis.Close(rdb, log)
 
-	// Базовый HTTP-клиент (без авторизации)
-	httpClient := &http.Client{
-		Timeout: 5 * time.Second,
+	// --- Repositories & cache ---
+	userRepo := pgrepo.NewUserSettingsPostgres(pool, log)
+	notifRepo := pgrepo.NewNotificationPostgres(pool, log)
+	obCache := cache.NewOrderbookCache(rdb, log)
+	dedup := cache.NewNotificationDedup(rdb, log)
+
+	// --- Notifier (gRPC к tg-bot, либо MVP-логгер) ---
+	var notifier usecase.Notifier
+
+	if cfg.Telegram.Addr == "" {
+		log.Warn("analyser_tgbot_addr_empty_fallback_mvp_notifier")
+		notifier = NewMVPNotifier(log)
+	} else {
+		tgConn, err := grpc.NewClient(
+			cfg.Telegram.Addr,
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		)
+		if err != nil {
+			log.Error("analyser_tgbot_grpc_connect_failed", "addr", cfg.Telegram.Addr, "err", err)
+			os.Exit(1)
+		}
+		defer tgConn.Close()
+
+		// timeout можно вынести в конфиг, пока захардкодим 1–2 секунды
+		notifier = grpcnotifier.NewGRPCNotifier(tgConn, log, 2*time.Second)
+
+		log.Info("analyser_tgbot_grpc_connected", "addr", cfg.Telegram.Addr)
 	}
 
-	// TokenManager (использует cfg.Rapira.* и httpClient для /open/generate_jwt)
-	tm, err := middleware.NewTokenManager(cfg.Rapira, log, httpClient)
-	if err != nil {
-		log.Error("rapira_gw_token_manager_init_failed", "err", err)
-		os.Exit(1)
-	}
-
-	// Оборачиваем транспорт httpClient в AuthTransport, который подставляет Bearer-токен
-    var baseTransport *http.Transport
-
-    switch tr := httpClient.Transport.(type) {
-    case nil:
-        baseTransport = http.DefaultTransport.(*http.Transport).Clone()
-    case *http.Transport:
-        baseTransport = tr
-    default:
-        baseTransport = http.DefaultTransport.(*http.Transport).Clone()
-    }
-
-    httpClient.Transport = middleware.NewAuthTransport(baseTransport, tm, log)
-
-
-	// Rapira HTTP client (использует httpClient с AuthTransport)
-	rapiraClient := rapiraapi.NewClient(cfg.Rapira, httpClient, log)
-
-	// Publisher → Redis, TTL можно взять из конфигов, пока 2 секунды
-	pub := publisher.NewRedisOrderbookPublisher(rdb, log, 2*time.Second)
-
-	// Usecase service
+	// --- Usecase service ---
 	svc := usecase.NewService(
 		log,
-		rapiraClient,
-		pub,
-		cfg.Rapira.PollInterval, // интервал опроса берём из конфига
+		obCache,
+		userRepo,
+		notifRepo,
+		dedup,
+		notifier,
 	)
 
-	if err := svc.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		log.Error("rapira_gw_service_stopped_with_error", "err", err)
+	// --- NATS (подписка на обновления стакана) ---
+	nc, err := initNATS(cfg, log)
+	if err != nil {
+		log.Error("analyser_nats_init_failed", "err", err)
 		os.Exit(1)
 	}
+	defer nc.Close()
 
-	log.Info("rapira_gw_stopped_gracefully")
+	subject := "orderbook.updated.rapira.usdt_rub"
+
+	sub, err := nc.Subscribe(subject, func(msg *nats.Msg) {
+		_ = msg // payload нам не нужен — просто триггерим HandleTick
+
+		ctxTick, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		defer cancel()
+
+		go func() {
+			if err := svc.HandleTick(ctxTick); err != nil && !errors.Is(err, context.Canceled) {
+				log.Error("analyser_handletick_failed", "err", err)
+			}
+		}()
+	})
+	if err != nil {
+		log.Error("analyser_nats_subscribe_failed", "subject", subject, "err", err)
+		os.Exit(1)
+	}
+	defer sub.Unsubscribe()
+
+	log.Info("analyser_ready", "subject", subject, "nats_url", cfg.Nats.URL)
+
+	<-ctx.Done()
+	log.Info("analyser_stopping")
+}
+
+var ErrEmptyNATSURL = fmt.Errorf("nats url is empty")
+
+func initNATS(cfg *config.Config, log logger.Logger) (*nats.Conn, error) {
+	url := cfg.Nats.URL
+	if url == "" {
+		log.Error("analyser_nats_url_empty")
+		return nil, ErrEmptyNATSURL
+	}
+
+	nc, err := nats.Connect(url, nats.Name("analyser"))
+	if err != nil {
+		log.Error("analyser_nats_connect_failed", "url", url, "err", err)
+		return nil, err
+	}
+
+	log.Info("analyser_nats_connected", "url", url)
+	return nc, nil
 }

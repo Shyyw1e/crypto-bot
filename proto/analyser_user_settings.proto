@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+package analyser;
+
+option go_package = "/internal/proto/analyserpb";
+
+// Настройки пользователя, практически 1-в-1 с domain.UserSettings.
+message UserSettings {
+  int64  chat_id            = 1;
+  bool   watch_fact         = 2;
+  bool   watch_potential    = 3;
+  double min_diff_fact      = 4;
+  double min_diff_potential = 5;
+  double max_notional       = 6;
+  bool   is_active          = 7;
+}
+
+// Создать/обновить настройки пользователя.
+message UpsertUserSettingsRequest {
+  UserSettings settings = 1;
+}
+
+message UpsertUserSettingsResponse {
+  // можно оставить пустым; при желании можно добавить поле "updated_at" и т.п.
+}
+
+// Включить/выключить анализ для пользователя.
+message SetUserActiveRequest {
+  int64 chat_id  = 1;
+  bool  is_active = 2;
+}
+
+message SetUserActiveResponse {
+  // тоже пустой ответ.
+}
+
+// gRPC-сервис, который поднимает analyser.
+// Тг-бот выступает клиентом и дергает эти методы.
+service AnalyserSettingsService {
+  rpc UpsertUserSettings(UpsertUserSettingsRequest)
+      returns (UpsertUserSettingsResponse);
+
+  rpc SetUserActive(SetUserActiveRequest)
+      returns (SetUserActiveResponse);
+}
