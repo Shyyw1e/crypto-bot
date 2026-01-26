@@ -342,6 +342,7 @@ func validateConfig(cfg *Config, serviceName string) error {
 		if cfg.Telegram.Addr == "" {
 			return errors.New("TGBOT_GRPC_ADDR is required for analyser")
 		}
+
 	case "rapira-gw":
 		if cfg.HTTP.Port == 0 {
 			return errors.New("RAPIRA_GW_HTTP_PORT is required")
@@ -358,6 +359,7 @@ func validateConfig(cfg *Config, serviceName string) error {
 		if len(cfg.Rapira.Symbols) == 0 {
 			return errors.New("RAPIRA_SYMBOLS must contain at least one symbol for rapira-gw")
 		}
+
 	case "tg-bot":
 		if cfg.HTTP.Port == 0 {
 			return errors.New("TGBOT_HTTP_PORT is required")
@@ -365,16 +367,20 @@ func validateConfig(cfg *Config, serviceName string) error {
 		if cfg.Telegram.BotToken == "" {
 			return errors.New("TG_BOT_TOKEN is required for tg-bot")
 		}
+		if cfg.Telegram.Addr == "" {
+			return errors.New("TGBOT_GRPC_ADDR is required for tg-bot")
+		}
+
 	case "grinex-gw":
 		if cfg.HTTP.Port == 0 {
 			return errors.New("GRINEX_GW_HTTP_PORT is required")
 		}
-		// API Grinex пока может быть пустым, валидировать при реальной интеграции
 	default:
 	}
 
 	return nil
 }
+
 
 
 func getEnv(key, def string) string {
