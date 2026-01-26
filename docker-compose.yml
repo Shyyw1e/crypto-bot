@@ -1,0 +1,133 @@
+version: "3.9"
+
+services:
+  ########################################
+  # Инфраструктура
+  ########################################
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: crypto-bot-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - crypto-bot-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: crypto-bot-redis
+    restart: always
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6380:6379"
+    networks:
+      - crypto-bot-net
+
+  nats:
+    image: nats:2.10-alpine
+    container_name: crypto-bot-nats
+    restart: always
+    ports:
+      - "4222:4222"
+    command: ["-js"]  # включаем JetStream на будущее (по желанию)
+    networks:
+      - crypto-bot-net
+
+
+  ########################################
+  # Сервисы приложения
+  ########################################
+
+  analyser:
+    build:
+      context: .
+      dockerfile: ./cmd/analyser/Dockerfile
+    container_name: crypto-bot-analyser
+    restart: always
+    env_file:
+      - .env
+    environment:
+      # переопределяем адрес tg-bot’а для gRPC
+      # внутри docker-сети он доступен по имени сервиса "tg-bot"
+      TGBOT_GRPC_ADDR: tg-bot:50051
+      # (остальные переменные берутся из .env)
+    depends_on:
+      - postgres
+      - redis
+      - nats
+      - tg-bot
+    ports:
+      - "8080:8080"   # ANALYSER_HTTP_PORT
+      - "9090:50052"  # внешний 9090 -> внутренний gRPC-порт 50052 (под ANALYSER_GRPC_ADDR)
+    networks:
+      - crypto-bot-net
+
+
+  tg-bot:
+    build:
+      context: .
+    # если у тебя отдельный Dockerfile для бота:
+      dockerfile: ./cmd/tg-bot/Dockerfile
+    container_name: crypto-bot-tgbot
+    restart: always
+    env_file:
+      - .env
+    environment:
+      # адрес analyser’а для gRPC-клиента в боте
+      ANALYSER_GRPC_ADDR: analyser:50052
+      # важно: внутри контейнера бот будет слушать на 0.0.0.0:50051
+      TGBOT_GRPC_ADDR: 0.0.0.0:50051
+    depends_on:
+      - redis
+    ports:
+      - "8081:8081"   # TGBOT_HTTP_PORT (если нужен http)
+      - "50051:50051" # gRPC бот-сервиса (для отладки/локального вызова)
+    networks:
+      - crypto-bot-net
+
+
+  rapira-gw:
+    build:
+      context: .
+      dockerfile: ./cmd/rapira-gw/Dockerfile
+    container_name: crypto-bot-rapira-gw
+    restart: always
+    env_file:
+      - .env
+    depends_on:
+      - redis
+    ports:
+      - "8082:8082"   # RAPIRA_GW_HTTP_PORT (на будущее: health/profiles)
+    networks:
+      - crypto-bot-net
+
+
+  # grinex-gw:
+  #   build:
+  #     context: .
+  #     dockerfile: ./cmd/grinex-gw/Dockerfile
+  #   container_name: crypto-bot-grinex-gw
+  #   restart: always
+  #   env_file:
+  #     - .env
+  #   depends_on:
+  #     - redis
+  #   ports:
+  #     - "8083:8083"   # GRINEX_GW_HTTP_PORT (на будущее)
+  #   networks:
+  #     - crypto-bot-net
+
+
+networks:
+  crypto-bot-net:
+    driver: bridge
+
+volumes:
+  pgdata:
