@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"time"
 
+
+	"github.com/nats-io/nats.go"
 	"github.com/Shyyw1e/crypto-bot/internal/analyser/domain"
 	"github.com/Shyyw1e/crypto-bot/internal/rapira-gw/usecase"
 	"github.com/Shyyw1e/crypto-bot/internal/shared/logger"
@@ -33,17 +35,19 @@ func buildRawOrderbook(ob *usecase.Orderbook) (*rawOrderbook, error) {
 }
 
 type redisOrderbookPublisher struct {
+	nc *nats.Conn
 	rdb *redis.Client
 	log logger.Logger
 	ttl time.Duration
 }
 
 func NewRedisOrderbookPublisher(
-	rdb *redis.Client,
-	log logger.Logger,
-	ttl time.Duration,
+    rdb *redis.Client,
+    log logger.Logger,
+    ttl time.Duration,
+    nc *nats.Conn,
 ) usecase.OrderbookPublisher {
-	return &redisOrderbookPublisher{rdb: rdb, log: log, ttl: ttl}
+    return &redisOrderbookPublisher{rdb: rdb, log: log, ttl: ttl, nc: nc}
 }
 
 func (p *redisOrderbookPublisher) Publish(
@@ -74,6 +78,15 @@ func (p *redisOrderbookPublisher) Publish(
 	if err := p.rdb.Set(ctx, key, data, p.ttl).Err(); err != nil {
 		p.log.Error("redis_orderbook_set_failed", "key", key, "err", err)
 		return fmt.Errorf("set orderbook in redis: %w", err)
+	}
+
+	if p.nc != nil {
+		subj := fmt.Sprintf("orderbook.updated.%s.%s", src, pair) // например: orderbook.updated.rapira.USDT_RUB
+		if err := p.nc.Publish(subj, nil); err != nil {
+			p.log.Warn("nats_orderbook_publish_failed", "subject", subj, "err", err)
+		} else {
+			p.log.Debug("nats_orderbook_published", "subject", subj)
+		}
 	}
 
 	p.log.Debug(

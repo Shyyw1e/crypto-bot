@@ -125,20 +125,24 @@ func (s *Service) HandleUpdate(ctx context.Context, upd tgbotapi.Update) error {
 }
 
 func (s *Service) handleWizardMessage(ctx context.Context, chatID int64, text string) error {
-	dlg := s.getDialog(chatID)
+    dlg := s.getDialog(chatID)
 
-	switch dlg.Step {
-	case StepChooseType:
-		return s.handleChooseType(ctx, chatID, dlg, text)
-	case StepInputMinDiffFact:
-		return s.handleMinDiffFact(ctx, chatID, dlg, text)
-	case StepInputMinDiffPot:
-		return s.handleMinDiffPot(ctx, chatID, dlg, text)
-	default:
-		// мастер не активен — игнор
-		return nil
-	}
+    switch dlg.Step {
+    case StepChooseType:
+        return s.handleChooseType(ctx, chatID, dlg, text)
+    case StepInputMinDiffFact:
+        return s.handleMinDiffFact(ctx, chatID, dlg, text)
+    case StepInputMinDiffPot:
+        return s.handleMinDiffPot(ctx, chatID, dlg, text)
+    case StepInputMaxNotional: // 🆕
+        return s.handleMaxNotional(ctx, chatID, dlg, text)
+    default:
+        // мастер не активен — игнор
+        return nil
+    }
 }
+
+
 
 func (s *Service) handleChooseType(ctx context.Context, chatID int64, dlg *DialogState, text string) error {
 	_ = ctx // пока здесь нет внешних вызовов кроме Telegram
@@ -180,81 +184,121 @@ func parseFloat(text string) (float64, error) {
 }
 
 func (s *Service) handleMinDiffFact(ctx context.Context, chatID int64, dlg *DialogState, text string) error {
-	_ = ctx // на будущее — возможно, здесь тоже будет внешка
+    _ = ctx
 
-	v, err := parseFloat(text)
-	if err != nil || v <= 0 {
-		_, _ = s.bot.Send(tgbotapi.NewMessage(chatID, "Не получилось прочитать число, попробуйте ещё раз, например: 0.03"))
-		return nil
-	}
-	dlg.TempMinDiffFact = v
+    v, err := parseFloat(text)
+    if err != nil || v <= 0 {
+        _, _ = s.bot.Send(tgbotapi.NewMessage(chatID, "Не получилось прочитать число, попробуйте ещё раз, например: 0.03"))
+        return nil
+    }
+    dlg.TempMinDiffFact = v
 
-	if dlg.WatchType == WatchFactOnly {
-		// сразу сохраняем настройки
-		return s.finishWizard(ctx, chatID, dlg)
-	}
+    if dlg.WatchType == WatchFactOnly {
+        // 🆕 вместо finishWizard — отдельный шаг для max_notional
+        dlg.Step = StepInputMaxNotional
+        msg := tgbotapi.NewMessage(
+            chatID,
+            "Теперь введите *максимальный объём в USDT*, на который готовы заходить.\n"+
+                "Например: `1000`\nЕсли хотите без лимита — введите `0`.",
+        )
+        msg.ParseMode = "Markdown"
+        _, err := s.bot.Send(msg)
+        return err
+    }
 
-	// иначе надо спросить ещё потенциал
-	dlg.Step = StepInputMinDiffPot
-	msg := tgbotapi.NewMessage(chatID, "Теперь введите минимальный дифф для *потенциала* (например, 0.03):")
-	msg.ParseMode = "Markdown"
-	_, err = s.bot.Send(msg)
-	return err
+    // иначе надо спросить ещё потенциал
+    dlg.Step = StepInputMinDiffPot
+    msg := tgbotapi.NewMessage(chatID, "Теперь введите минимальный дифф для *потенциала* (например, 0.03):")
+    msg.ParseMode = "Markdown"
+    _, err = s.bot.Send(msg)
+    return err
 }
+
 
 func (s *Service) handleMinDiffPot(ctx context.Context, chatID int64, dlg *DialogState, text string) error {
-	_ = ctx
+    _ = ctx
 
-	v, err := parseFloat(text)
-	if err != nil || v <= 0 {
-		_, _ = s.bot.Send(tgbotapi.NewMessage(chatID, "Не получилось прочитать число, попробуйте ещё раз, например: 0.03"))
-		return nil
-	}
-	dlg.TempMinDiffPotential = v
+    v, err := parseFloat(text)
+    if err != nil || v <= 0 {
+        _, _ = s.bot.Send(tgbotapi.NewMessage(chatID, "Не получилось прочитать число, попробуйте ещё раз, например: 0.03"))
+        return nil
+    }
+    dlg.TempMinDiffPotential = v
 
-	return s.finishWizard(ctx, chatID, dlg)
+    // 🆕 следующий шаг — ввод max_notional
+    dlg.Step = StepInputMaxNotional
+    msg := tgbotapi.NewMessage(
+        chatID,
+        "Теперь введите *максимальный объём в USDT*, на который готовы заходить.\n"+
+            "Например: `1000`\nЕсли хотите без лимита — введите `0`.",
+    )
+    msg.ParseMode = "Markdown"
+    _, err = s.bot.Send(msg)
+    return err
 }
+
+func (s *Service) handleMaxNotional(ctx context.Context, chatID int64, dlg *DialogState, text string) error {
+    _ = ctx
+
+    v, err := parseFloat(text)
+    // разрешаем 0 (без лимита), но не разрешаем отрицательные
+    if err != nil || v < 0 {
+        _, _ = s.bot.Send(tgbotapi.NewMessage(
+            chatID,
+            "Не получилось прочитать число, попробуйте ещё раз.\n"+
+                "Пример: `1000` или `0` для отсутствия лимита.",
+        ))
+        return nil
+    }
+
+    dlg.TempMaxNotional = v
+
+    return s.finishWizard(ctx, chatID, dlg)
+}
+
 
 func (s *Service) finishWizard(ctx context.Context, chatID int64, dlg *DialogState) error {
-	// Собираем настройки для analyser’а
-	watchFact := dlg.WatchType == WatchFactOnly || dlg.WatchType == WatchBoth
-	watchPot := dlg.WatchType == WatchPotentialOnly || dlg.WatchType == WatchBoth
+    // Собираем настройки для analyser’а
+    watchFact := dlg.WatchType == WatchFactOnly || dlg.WatchType == WatchBoth
+    watchPot := dlg.WatchType == WatchPotentialOnly || dlg.WatchType == WatchBoth
 
-	settings := &analyserpb.UserSettings{
-		ChatId:           chatID,
-		WatchFact:        watchFact,
-		WatchPotential:   watchPot,
-		MinDiffFact:      dlg.TempMinDiffFact,
-		MinDiffPotential: dlg.TempMinDiffPotential,
-		MaxNotional:      1000, // TODO: вынести в отдельный шаг
-		IsActive:         false,
-	}
+    settings := &analyserpb.UserSettings{
+        ChatId:           chatID,
+        WatchFact:        watchFact,
+        WatchPotential:   watchPot,
+        MinDiffFact:      dlg.TempMinDiffFact,
+        MinDiffPotential: dlg.TempMinDiffPotential,
+        MaxNotional:      dlg.TempMaxNotional, // 🆕 тут юзерский лимит
+        IsActive:         false,
+    }
 
-	// ВАЖНО: здесь используем ctx из обработчика update
-	if _, err := s.analyser.UpsertUserSettings(ctx,
-		&analyserpb.UpsertUserSettingsRequest{Settings: settings},
-	); err != nil {
-		s.log.Error("tgbot_upsert_settings_failed", "chat_id", chatID, "err", err)
-		s.bot.Send(tgbotapi.NewMessage(chatID, "Не удалось сохранить настройки, попробуйте позже."))
-		return err
-	}
+    if _, err := s.analyser.UpsertUserSettings(ctx,
+        &analyserpb.UpsertUserSettingsRequest{Settings: settings},
+    ); err != nil {
+        s.log.Error("tgbot_upsert_settings_failed", "chat_id", chatID, "err", err)
+        s.bot.Send(tgbotapi.NewMessage(chatID, "Не удалось сохранить настройки, попробуйте позже."))
+        return err
+    }
 
-	dlg.Step = StepIdle
+    dlg.Step = StepIdle
 
-	summary := fmt.Sprintf(
-		"Сохранил настройки:\n"+
-			"• Факт: %v (мин. дифф %.3f)\n"+
-			"• Потенциал: %v (мин. дифф %.3f)\n\n"+
-			"Нажмите «Начать анализ», чтобы запустить.",
-		watchFact, settings.MinDiffFact,
-		watchPot, settings.MinDiffPotential,
-	)
+    summary := fmt.Sprintf(
+        "Сохранил настройки:\n"+
+            "• Факт: %v (мин. дифф %.3f)\n"+
+            "• Потенциал: %v (мин. дифф %.3f)\n"+
+            "• Макс. объём: %.2f USDT (0 = без лимита)\n\n"+
+            "Нажмите «Начать анализ», чтобы запустить.",
+        watchFact, settings.MinDiffFact,
+        watchPot, settings.MinDiffPotential,
+        settings.MaxNotional,
+    )
 
-	msg := tgbotapi.NewMessage(chatID, summary)
-	msg.ReplyMarkup = mainKeyboard(false) // ещё не активен
-	_, err := s.bot.Send(msg)
-	return err
+    msg := tgbotapi.NewMessage(chatID, summary)
+    msg.ReplyMarkup = mainKeyboard(false) // ещё не активен
+    _, err := s.bot.Send(msg)
+    return err
 }
+
 
 func (s *Service) handleStartAnalysis(ctx context.Context, chatID int64) error {
 	_, err := s.analyser.SetUserActive(ctx, &analyserpb.SetUserActiveRequest{

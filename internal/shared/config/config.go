@@ -70,7 +70,8 @@ type GrinexConfig struct {
 
 type TelegramConfig struct {
 	BotToken            string
-	Addr                string        // gRPC-адрес tg-bot (TGBOT_GRPC_ADDR)
+	AnalyserAddr        string		  // gRPC-адрес analyser ()
+	Addr				string        // gRPC-адрес tg-bot (TGBOT_GRPC_ADDR)
 	NotificationTimeout time.Duration // таймаут на отправку уведомления в tg-bot
 }
 
@@ -319,6 +320,7 @@ func loadTelegramConfig(cfg *Config) {
 	cfg.Telegram = TelegramConfig{
 		BotToken:        os.Getenv("TG_BOT_TOKEN"),
 		Addr: os.Getenv("TGBOT_GRPC_ADDR"),
+		AnalyserAddr: os.Getenv("ANALYSER_GRPC_ADDR"),
 		NotificationTimeout: time.Duration(2000) * time.Millisecond,
 	}
 }
@@ -367,8 +369,8 @@ func validateConfig(cfg *Config, serviceName string) error {
 		if cfg.Telegram.BotToken == "" {
 			return errors.New("TG_BOT_TOKEN is required for tg-bot")
 		}
-		if cfg.Telegram.Addr == "" {
-			return errors.New("TGBOT_GRPC_ADDR is required for tg-bot")
+		if cfg.Telegram.AnalyserAddr == "" {
+			return errors.New("ANALYSER_GRPC_ADDR is required for tg-bot")
 		}
 
 	case "grinex-gw":

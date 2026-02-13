@@ -4,19 +4,23 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats.go"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
 	tgbotgrpc "github.com/Shyyw1e/crypto-bot/internal/analyser/adapters/tgbotgrpc"
 	"github.com/Shyyw1e/crypto-bot/internal/analyser/cache"
+	analysergrpc "github.com/Shyyw1e/crypto-bot/internal/analyser/grpc"
 	pgrepo "github.com/Shyyw1e/crypto-bot/internal/analyser/repository/postgres"
 	"github.com/Shyyw1e/crypto-bot/internal/analyser/usecase"
+	analyserpb "github.com/Shyyw1e/crypto-bot/internal/proto/analyserpb"
 	"github.com/Shyyw1e/crypto-bot/internal/shared/config"
 	"github.com/Shyyw1e/crypto-bot/internal/shared/db"
 	"github.com/Shyyw1e/crypto-bot/internal/shared/logger"
@@ -34,12 +38,25 @@ func main() {
 	log.Info("analyser_starting", "env", cfg.App.Env)
 
 	// Postgres
-	pool, err := db.Open(ctx, cfg, log)
-	if err != nil {
-		log.Error("analyser_db_open_failed", "err", err)
-		os.Exit(1)
+	// Postgres (retry до 30 секунд, чтобы дождаться старта контейнера postgres)
+	var pool *pgxpool.Pool
+	deadline := time.Now().Add(30 * time.Second)
+
+	for {
+		p, err := db.Open(ctx, cfg, log)
+		if err == nil {
+			pool = p
+			break
+		}
+		if time.Now().After(deadline) {
+			log.Error("analyser_db_open_failed", "err", err)
+			os.Exit(1)
+		}
+		time.Sleep(1 * time.Second)
 	}
 	defer db.Close(pool, log)
+
+
 
 	// Redis
 	rdb, err := redis.New(ctx, cfg, log)
@@ -79,6 +96,29 @@ func main() {
 
 	// Сервис анализатора
 	svc := usecase.NewService(log, obCache, userRepo, notifRepo, dedup, notifier)
+	if cfg.Telegram.AnalyserAddr == "" {
+        log.Error("analyser_grpc_addr_empty", "hint", "set ANALYSER_GRPC_ADDR env (например, :50052)")
+        os.Exit(1)
+    }
+
+    lis, err := net.Listen("tcp", cfg.Telegram.AnalyserAddr)
+    if err != nil {
+        log.Error("analyser_grpc_listen_failed", "addr", cfg.Telegram.AnalyserAddr, "err", err)
+        os.Exit(1)
+    }
+
+    grpcSrv := grpc.NewServer()
+
+    settingsServer := analysergrpc.NewSettingsServer(log, svc)
+    analyserpb.RegisterAnalyserSettingsServiceServer(grpcSrv, settingsServer)
+
+    go func() {
+        log.Info("analyser_grpc_server_start", "addr", cfg.Telegram.AnalyserAddr)
+        if err := grpcSrv.Serve(lis); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
+            log.Error("analyser_grpc_server_failed", "err", err)
+            stop() // гасим приложение
+        }
+    }()
 
 	// NATS
 	nc, err := initNATS(cfg, log)
@@ -88,20 +128,25 @@ func main() {
 	}
 	defer nc.Close()
 
-	subject := "orderbook.updated.rapira.usdt_rub"
+	subject := "orderbook.updated.rapira.USDT_RUB"
 
 	sub, err := nc.Subscribe(subject, func(msg *nats.Msg) {
-		// payload не нужен — analyser сам забирает актуальный стакан из Redis
-		_ = msg
+		start := time.Now()
 
-		ctxTick, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-		go func() {
-			defer cancel()
-			if err := svc.HandleTick(ctxTick); err != nil && !errors.Is(err, context.Canceled) {
-				log.Error("analyser_handletick_failed", "err", err)
-			}
-		}()
+		log.Debug("analyser_nats_tick_received", "subject", msg.Subject)
+
+		ctxTick, cancel := context.WithTimeout(ctx, 2*time.Second) // на время дебага увеличь
+		defer cancel()
+
+		err := svc.HandleTick(ctxTick)
+
+		log.Debug("analyser_tick_processed",
+			"dur_ms", time.Since(start).Milliseconds(),
+			"err", err,
+		)
 	})
+
+
 	if err != nil {
 		log.Error("analyser_nats_subscribe_failed", "subject", subject, "err", err)
 		os.Exit(1)
@@ -109,6 +154,22 @@ func main() {
 	defer sub.Unsubscribe()
 
 	log.Info("analyser_ready", "subject", subject, "nats_url", cfg.Nats.URL)
+
+	go func() {
+		t := time.NewTicker(2 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				ctxTick, cancel := context.WithTimeout(ctx, 1*time.Second)
+				_ = svc.HandleTick(ctxTick)
+				cancel()
+			}
+		}
+	}()
+
 
 	<-ctx.Done()
 	log.Info("analyser_stopping")

@@ -6,8 +6,8 @@ type ArbitrageType string
 type Pair string
 
 const (
-	USDTRUB   Pair          = "USDT/RUB"
-	USDTA7A5  Pair          = "USDT/A7A5"
+	USDTRUB   Pair          = "USDT_RUB"
+	USDTA7A5  Pair          = "USDT_A7A5"
 	Fact      ArbitrageType = "fact"
 	Potential ArbitrageType = "potential"
 )

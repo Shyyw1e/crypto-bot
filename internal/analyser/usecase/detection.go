@@ -152,7 +152,7 @@ func DetectPotentialByAsks(
 			SuggestedBid: round2(bid.Price + 0.01),
 			CreatedAt:    time.Now(),
 		}
-
+		
 		// Это первое (i минимальный), значит самое вероятное → возвращаем сразу
 		return opp
 	}

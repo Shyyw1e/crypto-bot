@@ -40,7 +40,7 @@ func NewService(
 		client:       client,
 		publisher:    publisher,
 		pollInterval: pollInterval,
-		symbol:       "USDT_RUB",
+		symbol:       "USDT/RUB",
 		source:       domain.SourceRapira,
 		pair:         domain.USDTRUB,
 	}

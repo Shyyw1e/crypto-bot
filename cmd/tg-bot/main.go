@@ -109,7 +109,6 @@ func main() {
 		}
 	}()
 
-	// --- gRPC сервер для нотификаций от analyser ---
 	if cfg.Telegram.Addr == "" {
 		log.Error("tgbot_grpc_addr_empty", "hint", "set TGBOT_GRPC_ADDR env")
 		os.Exit(1)

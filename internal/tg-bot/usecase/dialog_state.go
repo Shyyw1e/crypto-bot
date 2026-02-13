@@ -5,10 +5,12 @@ type DialogStep string
 const (
     StepIdle DialogStep = "idle"
 
-    StepChooseType       DialogStep = "choose_type"
-    StepInputMinDiffFact DialogStep = "input_min_diff_fact"
-    StepInputMinDiffPot  DialogStep = "input_min_diff_pot"
+    StepChooseType         DialogStep = "choose_type"
+    StepInputMinDiffFact   DialogStep = "input_min_diff_fact"
+    StepInputMinDiffPot    DialogStep = "input_min_diff_pot"
+    StepInputMaxNotional   DialogStep = "input_max_notional"
 )
+
 
 type WatchType string
 
@@ -24,4 +26,5 @@ type DialogState struct {
 
     TempMinDiffFact      float64
     TempMinDiffPotential float64
+    TempMaxNotional      float64
 }
