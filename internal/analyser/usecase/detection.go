@@ -26,7 +26,7 @@ func DetectFact(
 	effectiveAsk := ask.Price / (1 + feeAsk)
 	effectiveBid := bid.Price * (1 + feeBid)
 	profit := round2(effectiveAsk - effectiveBid)
-	if profit <= 0.03 {	// По умолчанию ищем ситуации не меньше 0.03 diff
+	if profit <= 0.01 {	// По умолчанию ищем ситуации не меньше 0.03 diff
 		return nil
 	}
 	// В DetectFact нам не нужно считать объем, на случай "notional over amount", тк в фактической ситуации мы встаем первыми в стакан

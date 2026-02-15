@@ -153,21 +153,21 @@ func (s *Service) handleChooseType(ctx context.Context, chatID int64, dlg *Dialo
 	case "факт":
 		dlg.WatchType = WatchFactOnly
 		dlg.Step = StepInputMinDiffFact
-		msg := tgbotapi.NewMessage(chatID, "Введите минимальный дифф для *факта* (например, 0.03):")
+		msg := tgbotapi.NewMessage(chatID, "Введите минимальный дифф для *факта* (например, 0.03. Обратите внимание: ситуации с разницей <= 0.01 автоматически игнорируются):")
 		msg.ParseMode = "Markdown"
 		_, err := s.bot.Send(msg)
 		return err
 	case "потенциал":
 		dlg.WatchType = WatchPotentialOnly
 		dlg.Step = StepInputMinDiffPot
-		msg := tgbotapi.NewMessage(chatID, "Введите минимальный дифф для *потенциала* (например, 0.03):")
+		msg := tgbotapi.NewMessage(chatID, "Введите минимальный дифф для *потенциала* (например, 0.03. Обратите внимание: ситуации с разницей <= 0.01 автоматически игнорируются):")
 		msg.ParseMode = "Markdown"
 		_, err := s.bot.Send(msg)
 		return err
 	case "оба":
 		dlg.WatchType = WatchBoth
 		dlg.Step = StepInputMinDiffFact
-		msg := tgbotapi.NewMessage(chatID, "Введите минимальный дифф для *факта* (например, 0.03):")
+		msg := tgbotapi.NewMessage(chatID, "Введите минимальный дифф для *факта* (например, 0.03. Обратите внимание: ситуации с разницей <= 0.01 автоматически игнорируются):")
 		msg.ParseMode = "Markdown"
 		_, err := s.bot.Send(msg)
 		return err
@@ -208,7 +208,7 @@ func (s *Service) handleMinDiffFact(ctx context.Context, chatID int64, dlg *Dial
 
     // иначе надо спросить ещё потенциал
     dlg.Step = StepInputMinDiffPot
-    msg := tgbotapi.NewMessage(chatID, "Теперь введите минимальный дифф для *потенциала* (например, 0.03):")
+    msg := tgbotapi.NewMessage(chatID, "Теперь введите минимальный дифф для *потенциала* (например, 0.03. Обратите внимание: ситуации с разницей <= 0.01 автоматически игнорируются):")
     msg.ParseMode = "Markdown"
     _, err = s.bot.Send(msg)
     return err
