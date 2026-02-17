@@ -22,12 +22,25 @@ func Mapper(resp *grinexapi.DepthResponse, log logger.Logger) *Orderbook {
 		return nil
 	}
 
-	asks := make([]domain.Order, 0, len(resp.Asks))
-	bids := make([]domain.Order, 0, len(resp.Bids))
+	const depth = 5
+
+	asksDepth := len(resp.Asks)
+	if asksDepth > depth {
+		asksDepth = depth
+	}
+	bidsDepth := len(resp.Bids)
+	if bidsDepth > depth {
+		bidsDepth = depth
+	}
+
+	asks := make([]domain.Order, 0, asksDepth)
+	bids := make([]domain.Order, 0, bidsDepth)
 
 	var askCum, bidCum float64
 
-	for _, lvl := range resp.Asks {
+	for i := 0; i < asksDepth; i++ {
+		lvl := resp.Asks[i]
+
 		price, err := strconv.ParseFloat(lvl.Price, 64)
 		if err != nil {
 			log.Error("grinex_mapper_parse_ask_price_failed", "value", lvl.Price, "err", err)
@@ -41,16 +54,18 @@ func Mapper(resp *grinexapi.DepthResponse, log logger.Logger) *Orderbook {
 
 		askCum += volume
 		asks = append(asks, domain.Order{
-			Price: price,
-			Amount: volume,
+			Price:    price,
+			Amount:   volume,
 			Notional: askCum,
-			Side: domain.SideAsk,
-			Source: domain.SourceGrinexUSDTA7A5,
-			Pair: domain.USDTA7A5,
+			Side:     domain.SideAsk,
+			Source:   domain.SourceGrinexUSDTA7A5,
+			Pair:     domain.USDTA7A5,
 		})
 	}
 
-	for _, lvl := range resp.Bids {
+	for i := 0; i < bidsDepth; i++ {
+		lvl := resp.Bids[i]
+
 		price, err := strconv.ParseFloat(lvl.Price, 64)
 		if err != nil {
 			log.Error("grinex_mapper_parse_bid_price_failed", "value", lvl.Price, "err", err)
@@ -79,8 +94,8 @@ func Mapper(resp *grinexapi.DepthResponse, log logger.Logger) *Orderbook {
 	}
 
 	return &Orderbook{
-		Asks: asks,
-		Bids: bids,
+		Asks:      asks,
+		Bids:      bids,
 		UpdatedAt: time.Now(),
 	}
 }
