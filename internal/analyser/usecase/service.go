@@ -144,58 +144,97 @@ func (s *Service) SetUserActive(ctx context.Context, chatID int64, active bool) 
 func (s *Service) HandleTick(ctx context.Context) error {
 	s.log.Debug("usecase_handletick_start")
 
-	obRapira, err := s.orderbookCache.Get(ctx, domain.SourceRapira, domain.USDTRUB)
-	if err != nil {
-		s.log.Debug("usecase_handletick_orderbook_get_err", "err", err)
-		if err == cache.ErrNotFound {
-			return nil
-		}
-		return err
+	type marketBook struct {
+		source 	domain.Source
+		pair 	domain.Pair
+		asks 	[]domain.Order
+		bids 	[]domain.Order
+		fee 	float64
 	}
-	if obRapira == nil {
-		s.log.Debug("usecase_handletick_orderbook_nil")
+
+	books := make([]marketBook, 0, 2)
+
+	if ob, err := s.orderbookCache.Get(ctx, domain.SourceRapira, domain.USDTRUB); err != nil {
+		if err != cache.ErrNotFound {
+			return err
+		}
+	} else if ob != nil && len(ob.Asks) > 0 && len(ob.Bids) > 0 {
+		books = append(books, marketBook{
+			source: domain.SourceRapira,
+			pair: 	domain.USDTRUB,
+			asks: 	ob.Asks,
+			bids: 	ob.Bids,
+			fee: 	0.0,
+		})
+	}
+
+	if ob, err := s.orderbookCache.Get(ctx, domain.SourceGrinexUSDTA7A5, domain.USDTA7A5); err != nil {
+		if err != cache.ErrNotFound {
+			return err
+		}
+	}	else if ob != nil && len(ob.Bids) > 0 && len(ob.Asks) > 0 {
+		books = append(books, marketBook{
+			source: domain.SourceGrinexUSDTA7A5,
+			pair: domain.USDTA7A5,
+			asks: ob.Asks,
+			bids: ob.Bids,
+			fee: 0.0005, // 0.05% сразу переводим в долю
+		})
+	}
+
+	if len(books) == 0 {
+		s.log.Debug("usecase_handletick_no_books")
 		return nil
 	}
 
-	// покажем, что реально достали книгу
-	bestAsk := 0.0
-	bestBid := 0.0
-	if len(obRapira.Asks) > 0 {
-		bestAsk = obRapira.Asks[0].Price
+	opps := make([]*domain.Opportunity, 0, 16)
+
+	for _, sellBook := range books {
+		for _, buyBook := range books {
+			pair := resolveOpportunityPair(buyBook.pair, sellBook.pair)
+
+			if opp := DetectFact(
+				sellBook.asks,
+				sellBook.bids,
+				sellBook.source,
+				buyBook.source,
+				pair,
+				sellBook.fee,
+				buyBook.fee,
+			); opp != nil {
+				opps = append(opps, opp)
+			}
+
+			if opp := DetectPotentialByAsks(
+				sellBook.asks,
+				buyBook.bids,
+				sellBook.source,
+				buyBook.source,
+				pair,
+				5,
+				sellBook.fee,
+				buyBook.fee,
+			); opp != nil {
+				opps = append(opps, opp)
+			}
+
+			if opp := DetectPotentialByBids(
+				sellBook.asks,
+				buyBook.bids,
+				sellBook.source,
+				buyBook.source,
+				pair,
+				5,
+				sellBook.fee,
+				buyBook.fee,
+			); opp != nil {
+				opps = append(opps, opp)
+			}
+		}
 	}
-	if len(obRapira.Bids) > 0 {
-		bestBid = obRapira.Bids[0].Price
-	}
 
-	s.log.Debug("usecase_handletick_orderbook_loaded",
-		"asks", len(obRapira.Asks),
-		"bids", len(obRapira.Bids),
-		"updated_at", obRapira.UpdatedAt.Format(time.RFC3339Nano),
-		"best_ask", bestAsk,
-		"best_bid", bestBid,
-		"spread", bestAsk-bestBid,
-	)
-
-	opps := make([]*domain.Opportunity, 0)
-
-	oppFact := DetectFact(obRapira.Asks, obRapira.Bids, domain.SourceRapira, domain.SourceRapira, domain.USDTRUB, 0.0, 0.0)
-	s.log.Debug("detect_fact_done", "ok", oppFact != nil)
-	if oppFact != nil {
-		opps = append(opps, oppFact)
-	}
-
-	oppPA := DetectPotentialByAsks(obRapira.Asks, obRapira.Bids, domain.SourceRapira, domain.SourceRapira, domain.USDTRUB, 5, 0.0, 0.0)
-	s.log.Debug("detect_potential_by_asks_done", "ok", oppPA != nil)
-	if oppPA != nil {
-		opps = append(opps, oppPA)
-	}
-
-	oppPB := DetectPotentialByBids(obRapira.Asks, obRapira.Bids, domain.SourceRapira, domain.SourceRapira, domain.USDTRUB, 5, 0.0, 0.0)
-	s.log.Debug("detect_potential_by_bids_done", "ok", oppPB != nil)
-	if oppPB != nil {
-		opps = append(opps, oppPB)
-	}
-
+	opps = dedupTickOpportunities(opps)
+	
 	s.log.Debug("usecase_handletick_opps_count", "count", len(opps))
 	if len(opps) == 0 {
 		return nil
@@ -203,26 +242,14 @@ func (s *Service) HandleTick(ctx context.Context) error {
 
 	users, err := s.userRepo.ListActive(ctx)
 	if err != nil {
-		s.log.Debug("usecase_handletick_list_active_err", "err", err)
+		s.log.Error("usecase_handletick_list_active_err", "err", err)
 		return err
 	}
 	s.log.Debug("usecase_handletick_active_users", "count", len(users))
 
 	for _, u := range users {
 		for _, opp := range opps {
-			ok := MatchUserSettings(u, opp)
-			if !ok {
-				s.log.Debug("usecase_match_failed",
-					"chat_id", u.ChatID,
-					"opp_type", opp.Type,
-					"watch_fact", u.WatchFact,
-					"watch_potential", u.WatchPotential,
-					"min_diff_fact", u.MinDiffFact,
-					"min_diff_potential", u.MinDiffPotential,
-					"max_notional", u.MaxNotional,
-					"opp_diff", opp.ProfitDiff,
-					"opp_notional", opp.Notional,
-				)
+			if !MatchUserSettings(u, opp) {
 				continue
 			}
 
@@ -252,6 +279,45 @@ func (s *Service) HandleTick(ctx context.Context) error {
 	return nil
 }
 
+func resolveOpportunityPair(buyPair, sellPair domain.Pair) domain.Pair {
+	if buyPair == sellPair {
+		return buyPair
+	}
+	return domain.Pair(fmt.Sprintf("%s->%s", buyPair, sellPair))
+}
+
+func dedupTickOpportunities(in []*domain.Opportunity) []*domain.Opportunity {
+	if len(in) == 0 {
+		return in
+	}
+
+	out := make([]*domain.Opportunity, 0, len(in))
+	seen := make(map[string]struct{}, len(in))
+
+	for _, opp := range in {
+		if opp == nil {
+			continue
+		}
+		key := fmt.Sprintf("%s|%s|%s|%s|%.4f|%.4f|%.4f",
+			opp.Type,
+			opp.Pair,
+			opp.BuyExchange,
+			opp.SellExchange,
+			opp.BuyPrice,
+			opp.SellPrice,
+			opp.Notional,
+		)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, opp)
+	}
+
+	return out
+}
+
+ 
 func MatchUserSettings(u *domain.UserSettings, opp *domain.Opportunity) bool {
 	switch opp.Type {
 	case domain.Fact:

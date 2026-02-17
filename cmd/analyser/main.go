@@ -128,7 +128,7 @@ func main() {
 	}
 	defer nc.Close()
 
-	subject := "orderbook.updated.rapira.USDT_RUB"
+	subject := "orderbook.updated.*.*"
 
 	sub, err := nc.Subscribe(subject, func(msg *nats.Msg) {
 		start := time.Now()

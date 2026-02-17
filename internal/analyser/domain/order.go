@@ -47,8 +47,18 @@ type Opportunity struct {
 }
 
 func (o *Opportunity) Hash(chatID int64) string {
-	return fmt.Sprintf("%d-%s-%s-%.2f-%.2f-%.4f", chatID, o.BuyExchange, o.SellExchange, o.BuyPrice, o.SellPrice, o.BuyAmount)
+	return fmt.Sprintf(
+		"%d-%s-%s-%s-%.2f-%.2f-%.4f",
+		chatID,
+		o.Pair,
+		o.BuyExchange,
+		o.SellExchange,
+		o.BuyPrice,
+		o.SellPrice,
+		o.BuyAmount,
+	)
 }
+
 
 type FeesConfig struct {
 	Source	Source		// rapira/grinex

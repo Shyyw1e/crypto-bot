@@ -291,7 +291,8 @@ func loadRapiraConfig(cfg *Config) error {
 }
 
 func loadGrinexConfig(cfg *Config) error {
-	baseURL := os.Getenv("GRINEX_API_BASE_URL")
+	baseURL := strings.TrimRight(getEnv("GRINEX_API_BASE_URL", "https://grinex.io/api/v1"), "/")
+
 	pollIntervalMs, err := getIntEnv("GRINEX_POLL_INTERVAL_MS", 500)
 	if err != nil {
 		return fmt.Errorf("parse GRINEX_POLL_INTERVAL_MS: %w", err)
@@ -301,7 +302,7 @@ func loadGrinexConfig(cfg *Config) error {
 	var symbols []string
 	if symbolsRaw != "" {
 		for _, s := range strings.Split(symbolsRaw, ",") {
-			s = strings.TrimSpace(s)
+			s = strings.TrimSpace(strings.ToLower(s))
 			if s != "" {
 				symbols = append(symbols, s)
 			}
@@ -315,6 +316,7 @@ func loadGrinexConfig(cfg *Config) error {
 	}
 	return nil
 }
+
 
 func loadTelegramConfig(cfg *Config) {
 	cfg.Telegram = TelegramConfig{
@@ -374,9 +376,23 @@ func validateConfig(cfg *Config, serviceName string) error {
 		}
 
 	case "grinex-gw":
-		if cfg.HTTP.Port == 0 {
-			return errors.New("GRINEX_GW_HTTP_PORT is required")
+	if cfg.HTTP.Port == 0 {
+		return errors.New("GRINEX_GW_HTTP_PORT is required")
+	}
+	if cfg.Grinex.BaseURL == "" {
+		return errors.New("GRINEX_API_BASE_URL is required for grinex-gw")
+	}
+	if len(cfg.Grinex.Symbols) == 0 {
+		return errors.New("GRINEX_SYMBOLS must contain at least one symbol for grinex-gw")
+	}
+
+	// Временно поддерживаем только usdta7a5, пока usdt_rub недоступен на бирже.
+	for _, s := range cfg.Grinex.Symbols {
+		if s != "usdta7a5" {
+			return fmt.Errorf("unsupported grinex symbol for now: %s (expected only usdta7a5)", s)
 		}
+	}
+
 	default:
 	}
 

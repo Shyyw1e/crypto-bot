@@ -113,20 +113,22 @@ services:
     networks:
       - crypto-bot-net
 
-  # grinex-gw:
-  #   build:
-  #     context: .
-  #     dockerfile: ./cmd/grinex-gw/Dockerfile
-  #   container_name: crypto-bot-grinex-gw
-  #   restart: always
-  #   env_file:
-  #     - .env
-  #   depends_on:
-  #     - redis
-  #   ports:
-  #     - "8083:8083"   # GRINEX_GW_HTTP_PORT (на будущее)
-  #   networks:
-  #     - crypto-bot-net
+  grinex-gw:
+    build:
+      context: .
+      dockerfile: ./cmd/grinex-gw/Dockerfile
+    container_name: crypto-bot-grinex-gw
+    restart: always
+    env_file:
+      - .env
+    depends_on:
+      - redis
+      - nats
+    ports:
+      - "8083:8083"
+    networks:
+      - crypto-bot-net
+
 
   ########################################
   # Миграции БД
