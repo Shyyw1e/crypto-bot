@@ -29,20 +29,30 @@ func DetectFact(
 	if profit <= 0.01 {	// По умолчанию ищем ситуации не меньше 0.03 diff
 		return nil
 	}
-	// В DetectFact нам не нужно считать объем, на случай "notional over amount", тк в фактической ситуации мы встаем первыми в стакан
+	
+	// Объем, который реально можно исполнить на top-1 в обеих книгах
+	tradeAmount := min(ask.Amount, bid.Amount)
+	if tradeAmount <= 0 {
+		return nil
+	}
+
 	opp := &domain.Opportunity{
-		Type:        domain.Fact,
-		Pair:        pair,
-		BuyExchange: sourceBid,
+		Type:         domain.Fact,
+		Pair:         pair,
+		BuyExchange:  sourceBid,
 		SellExchange: sourceAsk,
 
 		BuyPrice:  round2(bid.Price),
 		SellPrice: round2(ask.Price),
 
-    	ProfitDiff:   round2(profit),
-    	SuggestedBid: round2(bid.Price + 0.01),
-    	CreatedAt:    time.Now(),
+		BuyAmount: tradeAmount,
+		Notional:  tradeAmount,
+
+		ProfitDiff:   round2(profit),
+		SuggestedBid: round2(bid.Price + 0.01),
+		CreatedAt:    time.Now(),
 	}
+
 
 	return opp
 }
@@ -119,7 +129,7 @@ func DetectPotentialByAsks(
 		return nil
 	}
 	if depth <= 0 || depth > len(asks) {
-		depth = len(bids)
+		depth = len(asks)
 	}
 	bid := bids[0]
 

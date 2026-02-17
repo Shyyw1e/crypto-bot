@@ -195,7 +195,7 @@ func (s *Service) HandleTick(ctx context.Context) error {
 
 			if opp := DetectFact(
 				sellBook.asks,
-				sellBook.bids,
+				buyBook.bids,
 				sellBook.source,
 				buyBook.source,
 				pair,

@@ -84,7 +84,7 @@ func (s *Server) formatNotificationText(n *tgbotpb.Notification) string {
 	return fmt.Sprintf(
 		"*%s* по паре *%s*\n"+
 			"Направление: `%s`\n"+
-			"Потенциал: *%.4f*%%\n"+
+			"Разница: *%.2f*\n"+
 			"Нотионал: *%.2f* USDT\n"+
 			"`op_hash: %s`",
 		kind,
