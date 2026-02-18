@@ -62,14 +62,14 @@ func round2(a float64) float64 {
 }
 
 func DetectPotentialByBids(
-    asks []domain.Order,
-    bids []domain.Order,
-    sourceAsk domain.Source,
-    sourceBid domain.Source,
-    pair domain.Pair,
-    depth int,      // например 5
-    feeAsk float64,
-    feeBid float64,
+	asks []domain.Order,
+	bids []domain.Order,
+	sourceAsk domain.Source,
+	sourceBid domain.Source,
+	pair domain.Pair,
+	depth int,
+	feeAsk float64,
+	feeBid float64,
 ) *domain.Opportunity {
 	if len(asks) == 0 || len(bids) == 0 {
 		return nil
@@ -78,6 +78,8 @@ func DetectPotentialByBids(
 		depth = len(bids)
 	}
 	ask := asks[0]
+
+	var best *domain.Opportunity
 
 	for i := 1; i < depth; i++ {
 		bid := bids[i]
@@ -89,9 +91,10 @@ func DetectPotentialByBids(
 		if profit <= 0.03 {
 			continue
 		}
+
 		buyAmount := min(ask.Notional, bid.Notional)
 
-		opp := &domain.Opportunity{
+		candidate := &domain.Opportunity{
 			Type:         domain.Potential,
 			Pair:         pair,
 			BuyExchange:  sourceBid,
@@ -108,30 +111,33 @@ func DetectPotentialByBids(
 			CreatedAt:    time.Now(),
 		}
 
-		// Это первое (i минимальный), значит самое вероятное → возвращаем сразу
-		return opp
+		if best == nil || candidate.ProfitDiff > best.ProfitDiff {
+			best = candidate
+		}
 	}
 
-	return nil
+	return best
 }
 
 func DetectPotentialByAsks(
-    asks []domain.Order,
-    bids []domain.Order,
-    sourceAsk domain.Source,
-    sourceBid domain.Source,
-    pair domain.Pair,
-    depth int,      // например 5
-    feeAsk float64,
-    feeBid float64,
+	asks []domain.Order,
+	bids []domain.Order,
+	sourceAsk domain.Source,
+	sourceBid domain.Source,
+	pair domain.Pair,
+	depth int,
+	feeAsk float64,
+	feeBid float64,
 ) *domain.Opportunity {
 	if len(asks) == 0 || len(bids) == 0 {
 		return nil
 	}
 	if depth <= 0 || depth > len(asks) {
-		depth = len(asks)
+		depth = len(asks) // fixed
 	}
 	bid := bids[0]
+
+	var best *domain.Opportunity
 
 	for i := 1; i < depth; i++ {
 		ask := asks[i]
@@ -146,7 +152,7 @@ func DetectPotentialByAsks(
 
 		buyAmount := min(ask.Notional, bid.Notional)
 
-		opp := &domain.Opportunity{
+		candidate := &domain.Opportunity{
 			Type:         domain.Potential,
 			Pair:         pair,
 			BuyExchange:  sourceBid,
@@ -162,10 +168,11 @@ func DetectPotentialByAsks(
 			SuggestedBid: round2(bid.Price + 0.01),
 			CreatedAt:    time.Now(),
 		}
-		
-		// Это первое (i минимальный), значит самое вероятное → возвращаем сразу
-		return opp
+
+		if best == nil || candidate.ProfitDiff > best.ProfitDiff {
+			best = candidate
+		}
 	}
 
-	return nil
+	return best
 }
