@@ -85,8 +85,8 @@ func DetectPotentialByBids(
 		bid := bids[i]
 
 		effectiveAsk := ask.Price / (1 + feeAsk)
-		effectiveBid := bid.Price * (1 + feeBid)
-		profit := round2(effectiveAsk - effectiveBid)
+		effectiveBid := bid.Price * (1 + feeBid) 
+		profit := round2(effectiveAsk - effectiveBid) 
 
 		if profit <= 0.03 {
 			continue

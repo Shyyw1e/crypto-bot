@@ -3,6 +3,9 @@ package grpcserver
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
+
 
 	"github.com/Shyyw1e/crypto-bot/internal/proto/tgbotpb"
 	"github.com/Shyyw1e/crypto-bot/internal/shared/logger"
@@ -40,9 +43,7 @@ func (s *Server) SendNotification(ctx context.Context, req *tgbotpb.SendNotifica
 	}
 
 	text := s.formatNotificationText(n)
-
 	msg := tgbotapi.NewMessage(chatID, text)
-	msg.ParseMode = "Markdown"
 
 	if _, err := s.bot.Send(msg); err != nil {
 		s.log.Error(
@@ -68,6 +69,74 @@ func (s *Server) SendNotification(ctx context.Context, req *tgbotpb.SendNotifica
 	return &tgbotpb.SendNotificationResponse{}, nil
 }
 
+type opHashDetails struct {
+	pair         string
+	buyExchange  string
+	sellExchange string
+	buyPrice     float64
+	sellPrice    float64
+}
+
+func parseOpHash(hash string) (*opHashDetails, bool) {
+	parts := strings.Split(hash, "-")
+	// Минимум:
+	// chatID, pair, buyEx, sellEx, buyPrice, sellPrice, buyAmount
+	if len(parts) < 7 {
+		return nil, false
+	}
+
+	last := len(parts) - 1
+
+	// парсим числовой хвост с конца
+	// buyAmount пока не используем, но валидируем формат
+	if _, err := strconv.ParseFloat(parts[last], 64); err != nil {
+		return nil, false
+	}
+
+	sellPrice, err := strconv.ParseFloat(parts[last-1], 64)
+	if err != nil {
+		return nil, false
+	}
+
+	buyPrice, err := strconv.ParseFloat(parts[last-2], 64)
+	if err != nil {
+		return nil, false
+	}
+
+	sellExchange := parts[last-3]
+	buyExchange := parts[last-4]
+
+	pairParts := parts[1 : last-4]
+	if len(pairParts) == 0 {
+		return nil, false
+	}
+	pair := strings.Join(pairParts, "-")
+
+	return &opHashDetails{
+		pair:         pair,
+		buyExchange:  buyExchange,
+		sellExchange: sellExchange,
+		buyPrice:     buyPrice,
+		sellPrice:    sellPrice,
+	}, true
+}
+
+
+func prettyExchange(raw string) string {
+	switch raw {
+	case "rapira":
+		return "Rapira"
+	case "grinex_usdt_a7a5":
+		return "Grinex"
+	default:
+		if raw == "" {
+			return "Unknown"
+		}
+		return strings.ToUpper(raw[:1]) + raw[1:]
+	}
+}
+
+
 // formatNotificationText — формирует текст сообщения для Telegram.
 func (s *Server) formatNotificationText(n *tgbotpb.Notification) string {
 	var kind string
@@ -77,21 +146,51 @@ func (s *Server) formatNotificationText(n *tgbotpb.Notification) string {
 	case "potential":
 		kind = "ПОТЕНЦИАЛ"
 	default:
-		kind = n.GetType()
+		kind = strings.ToUpper(n.GetType())
 	}
 
-	// simple markdown, без лишних спецсимволов
+	details, ok := parseOpHash(n.GetOpHash())
+	if !ok {
+		return fmt.Sprintf(
+			"%s по паре %s\n"+
+				"Направление: %s\n"+
+				"Разница с учетом комиссии: %.2f\n"+
+				"Тотал: %.2f USDT",
+			kind,
+			n.GetPair(),
+			n.GetDirection(),
+			n.GetProfitDiff(),
+			n.GetNotional(),
+		)
+	}
+
+	pair := n.GetPair()
+	if pair == "" {
+		pair = details.pair
+	}
+
+	buyPair := pair
+	sellPair := pair
+	if left, right, found := strings.Cut(pair, "->"); found {
+		buyPair = left
+		sellPair = right
+	}
+
 	return fmt.Sprintf(
-		"*%s* по паре *%s*\n"+
-			"Направление: `%s`\n"+
-			"Разница: *%.2f*\n"+
-			"Нотионал: *%.2f* USDT\n"+
-			"`op_hash: %s`",
+		"%s по паре %s\n"+
+			"Ордер покупки: %s %s %.2f\n"+
+			"Ордер продажи: %s %s %.2f\n"+
+			"Разница с учетом комиссии: %.2f\n"+
+			"Тотал: %.2f USDT",
 		kind,
-		n.GetPair(),
-		n.GetDirection(),
+		pair,
+		prettyExchange(details.buyExchange),
+		buyPair,
+		details.buyPrice,
+		prettyExchange(details.sellExchange),
+		sellPair,
+		details.sellPrice,
 		n.GetProfitDiff(),
 		n.GetNotional(),
-		n.GetOpHash(),
 	)
 }
