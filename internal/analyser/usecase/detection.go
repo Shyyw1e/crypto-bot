@@ -92,7 +92,7 @@ func DetectPotentialByBids(
 			continue
 		}
 
-		buyAmount := min(ask.Notional, bid.Notional)
+		buyAmount := bid.Notional
 
 		candidate := &domain.Opportunity{
 			Type:         domain.Potential,
@@ -150,7 +150,7 @@ func DetectPotentialByAsks(
 			continue
 		}
 
-		buyAmount := min(ask.Notional, bid.Notional)
+		buyAmount := ask.Notional
 
 		candidate := &domain.Opportunity{
 			Type:         domain.Potential,

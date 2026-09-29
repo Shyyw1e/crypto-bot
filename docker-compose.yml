@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   ########################################
   # Инфраструктура
@@ -14,7 +12,7 @@ services:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     ports:
-      - "5432:5432"
+      - "5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d crypto_bot"]
       interval: 2s
@@ -113,19 +111,41 @@ services:
     networks:
       - crypto-bot-net
 
-  grinex-gw:
+  # grinex-gw:
+  #   build:
+  #     context: .
+  #     dockerfile: ./cmd/grinex-gw/Dockerfile
+  #   container_name: crypto-bot-grinex-gw
+  #   restart: always
+  #   env_file:
+  #     - .env
+  #   depends_on:
+  #     - redis
+  #     - nats
+  #   ports:
+  #     - "8083:8083"
+  #   networks:
+  #     - crypto-bot-net
+
+  abcex-gw:
     build:
       context: .
-      dockerfile: ./cmd/grinex-gw/Dockerfile
-    container_name: crypto-bot-grinex-gw
+      dockerfile: ./cmd/abcex-gw/Dockerfile
+    container_name: crypto-bot-abcex-gw
     restart: always
     env_file:
       - .env
+    environment:
+      ABCEX_GW_HTTP_PORT: ${ABCEX_GW_HTTP_PORT:-8084}
+      ABCEX_WS_URL: ${ABCEX_WS_URL:-wss://hub.abcex.io/websocket/exchange}
+      ABCEX_SYMBOLS: ${ABCEX_SYMBOLS:-USDTRUB}
+      ABCEX_WS_PING_INTERVAL_SECONDS: ${ABCEX_WS_PING_INTERVAL_SECONDS:-25}
+      ABCEX_WS_RECONNECT_DELAY_SECONDS: ${ABCEX_WS_RECONNECT_DELAY_SECONDS:-3}
     depends_on:
       - redis
       - nats
     ports:
-      - "8083:8083"
+      - "8084:8084"
     networks:
       - crypto-bot-net
 

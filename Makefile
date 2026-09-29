@@ -9,7 +9,7 @@ proto:
 
 # Бинарники сервисов
 BIN_DIR := bin
-SERVICES := analyser rapira-gw tgbot
+SERVICES := analyser rapira-gw grinex-gw abcex-gw tg-bot
 
 .PHONY: build
 build: $(SERVICES:%=build-%)

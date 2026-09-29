@@ -40,25 +40,25 @@ type NatsConfig struct {
 }
 
 type ArbitrageConfig struct {
-	MinDiffGlobal    float64
+	MinDiffGlobal     float64
 	MaxNotionalGlobal float64
-	DedupTTL         time.Duration
-	OrderbookDepth   int
+	DedupTTL          time.Duration
+	OrderbookDepth    int
 }
 
 type RapiraConfig struct {
-    BaseURL          string        // RAPIRA_API_BASE_URL
-    APIKeyKID        string        // RAPIRA_API_KEY_KID
-    PrivateKeyBase64 string        // RAPIRA_JWT_PRIVATE_KEY
+	BaseURL          string // RAPIRA_API_BASE_URL
+	APIKeyKID        string // RAPIRA_API_KEY_KID
+	PrivateKeyBase64 string // RAPIRA_JWT_PRIVATE_KEY
 
-    PollIntervalMs   int           // RAPIRA_POLL_INTERVAL_MS
-    PollInterval     time.Duration // производное поле
+	PollIntervalMs int           // RAPIRA_POLL_INTERVAL_MS
+	PollInterval   time.Duration // производное поле
 
-    SymbolsRaw       string        // RAPIRA_SYMBOLS
-    Symbols          []string      // производное поле
+	SymbolsRaw string   // RAPIRA_SYMBOLS
+	Symbols    []string // производное поле
 
-    ClientJWTTTL     time.Duration // например, 1h (по умолчанию)
-    RefreshMargin    time.Duration // например, 5-10 минут до exp
+	ClientJWTTTL  time.Duration // например, 1h (по умолчанию)
+	RefreshMargin time.Duration // например, 5-10 минут до exp
 }
 
 type GrinexConfig struct {
@@ -67,14 +67,19 @@ type GrinexConfig struct {
 	Symbols      []string
 }
 
+type ABCEXConfig struct {
+	WSURL          string
+	Symbols        []string
+	PingInterval   time.Duration
+	ReconnectDelay time.Duration
+}
 
 type TelegramConfig struct {
 	BotToken            string
-	AnalyserAddr        string		  // gRPC-адрес analyser ()
-	Addr				string        // gRPC-адрес tg-bot (TGBOT_GRPC_ADDR)
+	AnalyserAddr        string        // gRPC-адрес analyser ()
+	Addr                string        // gRPC-адрес tg-bot (TGBOT_GRPC_ADDR)
 	NotificationTimeout time.Duration // таймаут на отправку уведомления в tg-bot
 }
-
 
 type Config struct {
 	App      AppConfig
@@ -85,6 +90,7 @@ type Config struct {
 	Arb      ArbitrageConfig
 	Rapira   RapiraConfig
 	Grinex   GrinexConfig
+	ABCEX    ABCEXConfig
 	Telegram TelegramConfig
 }
 
@@ -119,6 +125,9 @@ func Load(serviceName string) (*Config, error) {
 	if err := loadGrinexConfig(cfg); err != nil {
 		return nil, err
 	}
+	if err := loadABCEXConfig(cfg); err != nil {
+		return nil, err
+	}
 	loadTelegramConfig(cfg)
 
 	if err := validateConfig(cfg, serviceName); err != nil {
@@ -150,6 +159,8 @@ func loadHTTPConfig(cfg *Config, serviceName string) error {
 		portEnv = "RAPIRA_GW_HTTP_PORT"
 	case "grinex-gw":
 		portEnv = "GRINEX_GW_HTTP_PORT"
+	case "abcex-gw":
+		portEnv = "ABCEX_GW_HTTP_PORT"
 	case "tg-bot":
 		portEnv = "TGBOT_HTTP_PORT"
 	default:
@@ -218,8 +229,6 @@ func loadRedisConfig(cfg *Config) error {
 	return nil
 }
 
-
-
 func loadNatsConfig(cfg *Config) {
 	cfg.Nats = NatsConfig{
 		URL: os.Getenv("NATS_URL"),
@@ -245,10 +254,10 @@ func loadArbitrageConfig(cfg *Config) error {
 	}
 
 	cfg.Arb = ArbitrageConfig{
-		MinDiffGlobal:    minDiff,
+		MinDiffGlobal:     minDiff,
 		MaxNotionalGlobal: maxNotional,
-		DedupTTL:         time.Duration(dedupTTLSeconds) * time.Second,
-		OrderbookDepth:   orderbookDepth,
+		DedupTTL:          time.Duration(dedupTTLSeconds) * time.Second,
+		OrderbookDepth:    orderbookDepth,
 	}
 	return nil
 }
@@ -279,14 +288,14 @@ func loadRapiraConfig(cfg *Config) error {
 	}
 
 	cfg.Rapira = RapiraConfig{
-		BaseURL:        	baseURL,
-		APIKeyKID:      	apiKeyKID,
-		PrivateKeyBase64: 	privateKey,
-		PollInterval:   	time.Duration(pollIntervalMs) * time.Millisecond,
-		Symbols:        	symbols,
-		RefreshMargin: 		time.Duration(refreshMargin) * time.Minute,
-		ClientJWTTTL: 		time.Hour,
-	}	
+		BaseURL:          baseURL,
+		APIKeyKID:        apiKeyKID,
+		PrivateKeyBase64: privateKey,
+		PollInterval:     time.Duration(pollIntervalMs) * time.Millisecond,
+		Symbols:          symbols,
+		RefreshMargin:    time.Duration(refreshMargin) * time.Minute,
+		ClientJWTTTL:     time.Hour,
+	}
 	return nil
 }
 
@@ -317,12 +326,41 @@ func loadGrinexConfig(cfg *Config) error {
 	return nil
 }
 
+func loadABCEXConfig(cfg *Config) error {
+	wsURL := strings.TrimSpace(getEnv("ABCEX_WS_URL", "wss://hub.abcex.io/websocket/exchange"))
+
+	symbolsRaw := getEnv("ABCEX_SYMBOLS", "USDTRUB")
+	var symbols []string
+	for _, s := range strings.Split(symbolsRaw, ",") {
+		s = strings.TrimSpace(strings.ToUpper(s))
+		if s != "" {
+			symbols = append(symbols, s)
+		}
+	}
+
+	pingIntervalSec, err := getIntEnv("ABCEX_WS_PING_INTERVAL_SECONDS", 25)
+	if err != nil {
+		return fmt.Errorf("parse ABCEX_WS_PING_INTERVAL_SECONDS: %w", err)
+	}
+	reconnectDelaySec, err := getIntEnv("ABCEX_WS_RECONNECT_DELAY_SECONDS", 3)
+	if err != nil {
+		return fmt.Errorf("parse ABCEX_WS_RECONNECT_DELAY_SECONDS: %w", err)
+	}
+
+	cfg.ABCEX = ABCEXConfig{
+		WSURL:          wsURL,
+		Symbols:        symbols,
+		PingInterval:   time.Duration(pingIntervalSec) * time.Second,
+		ReconnectDelay: time.Duration(reconnectDelaySec) * time.Second,
+	}
+	return nil
+}
 
 func loadTelegramConfig(cfg *Config) {
 	cfg.Telegram = TelegramConfig{
-		BotToken:        os.Getenv("TG_BOT_TOKEN"),
-		Addr: os.Getenv("TGBOT_GRPC_ADDR"),
-		AnalyserAddr: os.Getenv("ANALYSER_GRPC_ADDR"),
+		BotToken:            os.Getenv("TG_BOT_TOKEN"),
+		Addr:                os.Getenv("TGBOT_GRPC_ADDR"),
+		AnalyserAddr:        os.Getenv("ANALYSER_GRPC_ADDR"),
 		NotificationTimeout: time.Duration(2000) * time.Millisecond,
 	}
 }
@@ -376,30 +414,44 @@ func validateConfig(cfg *Config, serviceName string) error {
 		}
 
 	case "grinex-gw":
-	if cfg.HTTP.Port == 0 {
-		return errors.New("GRINEX_GW_HTTP_PORT is required")
-	}
-	if cfg.Grinex.BaseURL == "" {
-		return errors.New("GRINEX_API_BASE_URL is required for grinex-gw")
-	}
-	if len(cfg.Grinex.Symbols) == 0 {
-		return errors.New("GRINEX_SYMBOLS must contain at least one symbol for grinex-gw")
-	}
-
-	// Временно поддерживаем только usdta7a5, пока usdt_rub недоступен на бирже.
-	for _, s := range cfg.Grinex.Symbols {
-		if s != "usdta7a5" {
-			return fmt.Errorf("unsupported grinex symbol for now: %s (expected only usdta7a5)", s)
+		if cfg.HTTP.Port == 0 {
+			return errors.New("GRINEX_GW_HTTP_PORT is required")
 		}
-	}
+		if cfg.Grinex.BaseURL == "" {
+			return errors.New("GRINEX_API_BASE_URL is required for grinex-gw")
+		}
+		if len(cfg.Grinex.Symbols) == 0 {
+			return errors.New("GRINEX_SYMBOLS must contain at least one symbol for grinex-gw")
+		}
+
+		// Временно поддерживаем только usdta7a5, пока usdt_rub недоступен на бирже.
+		for _, s := range cfg.Grinex.Symbols {
+			if s != "usdta7a5" {
+				return fmt.Errorf("unsupported grinex symbol for now: %s (expected only usdta7a5)", s)
+			}
+		}
+
+	case "abcex-gw":
+		if cfg.HTTP.Port == 0 {
+			return errors.New("ABCEX_GW_HTTP_PORT is required")
+		}
+		if cfg.ABCEX.WSURL == "" {
+			return errors.New("ABCEX_WS_URL is required for abcex-gw")
+		}
+		if len(cfg.ABCEX.Symbols) == 0 {
+			return errors.New("ABCEX_SYMBOLS must contain at least one symbol for abcex-gw")
+		}
+		for _, s := range cfg.ABCEX.Symbols {
+			if s != "USDTRUB" {
+				return fmt.Errorf("unsupported abcex symbol for now: %s (expected only USDTRUB)", s)
+			}
+		}
 
 	default:
 	}
 
 	return nil
 }
-
-
 
 func getEnv(key, def string) string {
 	if v, ok := os.LookupEnv(key); ok && v != "" {

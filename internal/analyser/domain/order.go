@@ -14,17 +14,17 @@ const (
 
 	SourceRapira         Source = "rapira"
 	SourceGrinexUSDTA7A5 Source = "grinex_usdt_a7a5"
+	SourceABCEX          Source = "abcex"
 )
 
 type Order struct {
-	Price    float64   	// цена
-	Amount   float64   	// количество базовой валюты (USDT)
-	Notional float64   	// объём в USDT (Sum)
-	Side     OrderSide 	// bid или ask
-	Source   Source		// rapira
-	Pair     Pair		// const "USDT/RUB"
+	Price    float64   // цена
+	Amount   float64   // количество базовой валюты (USDT)
+	Notional float64   // объём в USDT (Sum)
+	Side     OrderSide // bid или ask
+	Source   Source    // rapira
+	Pair     Pair      // const "USDT/RUB"
 }
-
 
 type Opportunity struct {
 	Type ArbitrageType
@@ -59,8 +59,7 @@ func (o *Opportunity) Hash(chatID int64) string {
 	)
 }
 
-
 type FeesConfig struct {
-	Source	Source		// rapira/grinex
-	Value 	float64		// в процентах, например 0.0 будет означать 0.0% комиссии
+	Source Source  // rapira/grinex
+	Value  float64 // в процентах, например 0.0 будет означать 0.0% комиссии
 }

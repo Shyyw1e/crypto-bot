@@ -145,14 +145,14 @@ func (s *Service) HandleTick(ctx context.Context) error {
 	s.log.Debug("usecase_handletick_start")
 
 	type marketBook struct {
-		source 	domain.Source
-		pair 	domain.Pair
-		asks 	[]domain.Order
-		bids 	[]domain.Order
-		fee 	float64
+		source domain.Source
+		pair   domain.Pair
+		asks   []domain.Order
+		bids   []domain.Order
+		fee    float64
 	}
 
-	books := make([]marketBook, 0, 2)
+	books := make([]marketBook, 0, 3)
 
 	if ob, err := s.orderbookCache.Get(ctx, domain.SourceRapira, domain.USDTRUB); err != nil {
 		if err != cache.ErrNotFound {
@@ -161,10 +161,10 @@ func (s *Service) HandleTick(ctx context.Context) error {
 	} else if ob != nil && len(ob.Asks) > 0 && len(ob.Bids) > 0 {
 		books = append(books, marketBook{
 			source: domain.SourceRapira,
-			pair: 	domain.USDTRUB,
-			asks: 	ob.Asks,
-			bids: 	ob.Bids,
-			fee: 	0.0,
+			pair:   domain.USDTRUB,
+			asks:   ob.Asks,
+			bids:   ob.Bids,
+			fee:    0.0,
 		})
 	}
 
@@ -172,13 +172,27 @@ func (s *Service) HandleTick(ctx context.Context) error {
 		if err != cache.ErrNotFound {
 			return err
 		}
-	}	else if ob != nil && len(ob.Bids) > 0 && len(ob.Asks) > 0 {
+	} else if ob != nil && len(ob.Bids) > 0 && len(ob.Asks) > 0 {
 		books = append(books, marketBook{
 			source: domain.SourceGrinexUSDTA7A5,
-			pair: domain.USDTA7A5,
-			asks: ob.Asks,
-			bids: ob.Bids,
-			fee: 0.0005, // 0.05% сразу переводим в долю
+			pair:   domain.USDTA7A5,
+			asks:   ob.Asks,
+			bids:   ob.Bids,
+			fee:    0.0005, // 0.05% сразу переводим в долю
+		})
+	}
+
+	if ob, err := s.orderbookCache.Get(ctx, domain.SourceABCEX, domain.USDTRUB); err != nil {
+		if err != cache.ErrNotFound {
+			return err
+		}
+	} else if ob != nil && len(ob.Bids) > 0 && len(ob.Asks) > 0 {
+		books = append(books, marketBook{
+			source: domain.SourceABCEX,
+			pair:   domain.USDTRUB,
+			asks:   ob.Asks,
+			bids:   ob.Bids,
+			fee:    0.0,
 		})
 	}
 
@@ -234,7 +248,7 @@ func (s *Service) HandleTick(ctx context.Context) error {
 	}
 
 	opps = dedupTickOpportunities(opps)
-	
+
 	s.log.Debug("usecase_handletick_opps_count", "count", len(opps))
 	if len(opps) == 0 {
 		return nil
@@ -317,7 +331,6 @@ func dedupTickOpportunities(in []*domain.Opportunity) []*domain.Opportunity {
 	return out
 }
 
- 
 func MatchUserSettings(u *domain.UserSettings, opp *domain.Opportunity) bool {
 	switch opp.Type {
 	case domain.Fact:
